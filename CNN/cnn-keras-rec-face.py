@@ -1,0 +1,154 @@
+from __future__ import print_function
+import keras
+from keras.models import Sequential
+from keras.layers import Dense, Dropout, Activation, Flatten
+from keras.layers import Conv2D, MaxPooling2D
+
+import cv2
+import os
+import numpy as np
+import sys,time
+
+from keras.preprocessing.image import ImageDataGenerator
+
+def chargement_path_image(path_image):
+    return [f for f in os.listdir(path_image) if f.endswith('.pgm')]
+
+def get_nom_classe_image(path_image):
+    nom_image = []
+    list_image = chargement_path_image(path_image)
+    for x in range(len(list_image)):
+        #nom_image.append(list_image[x].split(".")[0].replace("-", ""))
+        nom = list_image[x].split(".")[0]
+        nom_image.append(nom.split("-")[0])
+    return nom_image
+
+def main():
+    #batch_size = 128
+    num_classes = 41
+    img_rows, img_cols = 112, 92 # input image dimensions
+    
+    batch_size = 50
+    epochs = 10
+    data_augmentation = True
+    verbose = 0
+    
+    #recuperation train
+    label_train = []
+    image_train = []
+    path_train = "att_faces/train/"
+    
+    label_train = chargement_path_image(path_train)
+
+    for x in range(len(label_train)):
+        image_train.append(cv2.imread(path_train + label_train[x]))
+    
+    #recuperation test
+    label_test = []
+    image_test = []
+    path_test = "att_faces/test/"
+    label_test = chargement_path_image(path_test)
+    
+    for x in range(len(label_test)):
+        image_test.append(cv2.imread(path_test + label_test[x]))
+
+    #initialisation de x_train et de x_test
+    x_train = np.array(image_train) #image
+    x_test = np.array(image_test) #image
+    
+    y_train = get_nom_classe_image(path_train)
+    y_test = get_nom_classe_image(path_test)
+    y_test = np.array(y_test) #label
+    y_train = np.array(y_train) #label
+
+    # the data, shuffled and split between train and test sets
+    #(x_train, y_train), (x_test, y_test) = mnist.load_data()
+
+    print('x_train shape:', x_train.shape)
+    print(x_train.shape[0], 'train samples')
+    print(x_test.shape[0], 'test samples')
+
+    # Convert class vectors to binary class matrices.
+    y_train = keras.utils.to_categorical(y_train, num_classes)
+    y_test = keras.utils.to_categorical(y_test, num_classes)
+
+    model = Sequential()
+
+    model.add(Conv2D(32, (3, 3), padding='same',
+                     input_shape=x_train.shape[1:]))
+    model.add(Activation('relu'))
+    model.add(Conv2D(32, (3, 3)))#hidden
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
+
+    model.add(Conv2D(64, (3, 3), padding='same'))#hidden
+    model.add(Activation('relu'))
+    model.add(Conv2D(64, (3, 3)))#hidden
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
+
+    model.add(Flatten())#sortie
+    model.add(Dense(512))#hidden
+    model.add(Activation('relu'))
+    model.add(Dropout(0.5))
+    model.add(Dense(num_classes))
+    model.add(Activation('softmax'))
+    #print(model.summary())
+    # initiate RMSprop optimizer
+    opt = keras.optimizers.rmsprop(lr=0.0001, decay=1e-6)
+
+    # Let's train the model using RMSprop
+    model.compile(loss='categorical_crossentropy',
+                  optimizer=opt,
+                  metrics=['accuracy'])
+
+    x_train = x_train.astype('float32')
+    x_test = x_test.astype('float32')
+    x_train /= 255
+    x_test /= 255
+
+    if not data_augmentation:
+        print('Not using data augmentation.')
+        model.fit(x_train, y_train,
+                  batch_size=batch_size,
+                  epochs=epochs,
+                  validation_data=(x_test, y_test),
+                  shuffle=True)
+        loss, accuracy = model.evaluate(x_test,y_test, verbose)
+    
+        print("loss", loss)
+        print("accuracy", accuracy)
+        print("accuracy%:", accuracy*100)
+    else:
+        print('Using real-time data augmentation.')
+        # This will do preprocessing and realtime data augmentation:
+        datagen = ImageDataGenerator(
+            featurewise_center=False,  # set input mean to 0 over the dataset
+            samplewise_center=False,  # set each sample mean to 0
+            featurewise_std_normalization=False,  # divide inputs by std of the dataset
+            samplewise_std_normalization=False,  # divide each input by its std
+            zca_whitening=False,  # apply ZCA whitening
+            rotation_range=0,  # randomly rotate images in the range (degrees, 0 to 180)
+            width_shift_range=0.1,  # randomly shift images horizontally (fraction of total width)
+            height_shift_range=0.1,  # randomly shift images vertically (fraction of total height)
+            horizontal_flip=True,  # randomly flip images
+            vertical_flip=False)  # randomly flip images
+
+        # Compute quantities required for feature-wise normalization
+        # (std, mean, and principal components if ZCA whitening is applied).
+        datagen.fit(x_train)
+
+        # Fit the model on the batches generated by datagen.flow().
+        model.fit_generator(datagen.flow(x_train, y_train,
+                                         batch_size=batch_size),
+                            steps_per_epoch=x_train.shape[0] // batch_size,
+                            epochs=epochs,
+                            validation_data=(x_test, y_test))
+        loss, accuracy = model.evaluate(x_test,y_test, verbose=0)
+    
+        print("loss", loss)
+        print("accuracy", accuracy)
+        print("accuracy%:", accuracy*100)
+        #print("temps de calcul est :" ,end-start, "secs")
